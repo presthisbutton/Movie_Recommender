@@ -1,59 +1,52 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import random
 from sklearn.metrics.pairwise import cosine_similarity
 
-movies = pd.read_csv("Data/movies.csv")
-ratings = pd.read_csv("Data/ratings.csv")
-movie_ratings = movies.merge(ratings)
-movie_ratings["rating_count"] = movie_ratings.groupby("title")["title"].transform("count")
-movie_ratings[["title", "year", "0", "1", "2"]] = movie_ratings["title"].str.split("(", expand = True)
-movie_ratings["title"] = movie_ratings["title"].str.rstrip()
-movie_ratings["title"] = movie_ratings["title"].str.lower()
-movie_ratings["year"] = movie_ratings["year"].str.strip(")")
-movie_ratings.drop(columns = ["0", "1", "2"], inplace = True)
-
-movie_pivot = pd.pivot_table(data = movie_ratings, values = "rating", index = "userId", columns = "title")
-
-movie_pivot_filled = movie_pivot.fillna(0)
-
+# a function that returns the top n movies based on ratings
 def top_movies(n):
-    top_movie = movie_ratings.groupby("title")[["rating", "rating_count"]].mean().sort_values(
-        by = "rating_count", ascending = False).head(n)   
-    return top_movie.index.str.title()
+    top_movie = movie_ratings.groupby("title")[["rating", "rating_count"]].mean().sort_values(by = "rating_count",
+                ascending = False).head(n) 
+    results = top_movie.merge(movie_ratings[["title", "genres", "year"]], left_index = True, 
+                              right_on = "title").drop_duplicates(subset = "title")
+    results.drop(columns = ["rating", "rating_count"], inplace = True)
+    results.reset_index(drop = True, inplace = True)
+    return results
 
 # a function that returns the n most similar movies to the selected title
 def similar_movies(title, n):
     # get the rating of the input movie
-    try:
-        movie_rating = movie_pivot[title.lower()]
-        # find the correlation between the input movie and all other movies
-        similar_movie = movie_pivot.corrwith(movie_rating)
+    movie_rating = movie_pivot[title]
+    # find the correlation between the input movie and all other movies
+    similar_movie = movie_pivot.corrwith(movie_rating)
     
-        # create a dataframe with all correlation values and drop all Nans
-        movie_corr = pd.DataFrame(similar_movie, columns = ["PearsonR"])
-        movie_corr.dropna(inplace = True)
+    # create a dataframe with all correlation values and drop all Nans
+    movie_corr = pd.DataFrame(similar_movie, columns = ["PearsonR"])
+    movie_corr.dropna(inplace = True)
     
-        # merge the correlation dataframe with the movrat dataframe which has title and rating count information
-        movie_corr_summary = movie_corr.merge(movie_ratings[["title", "rating_count"]], left_index = True, 
-                                              right_on = "title")
+    # merge the correlation dataframe with the movrat dataframe which has title and rating count information
+    movie_corr_summary = movie_corr.merge(movie_ratings[["title", "rating_count"]], left_index = True, 
+                                          right_on = "title")
     
-        # drop the input movie itself from the dataframe
-        movie_corr_summary.drop(movie_corr_summary[movie_corr_summary["title"] == title.lower()].index, 
-                                inplace = True)
+    # drop the input movie itself from the dataframe
+    movie_corr_summary.drop(movie_corr_summary[movie_corr_summary["title"] == title].index, 
+                            inplace = True)
     
-        # filter out movies with less than 10 ratings
-        filtered_movie = movie_corr_summary[movie_corr_summary["rating_count"] >= 10]
+    # filter out movies with less than 10 ratings
+    filtered_movie = movie_corr_summary[movie_corr_summary["rating_count"] >= 10]
     
-        # group the movies by title and sort them by R score then rating count
-        top_similar_movie = filtered_movie.groupby("title")[["PearsonR", "rating_count"]].mean().sort_values(
-            by = ["PearsonR", "rating_count"], ascending = [False, False]).head(n)
+    # group the movies by title and sort them by R score then rating count
+    top_similar_movie = filtered_movie.groupby("title")[["PearsonR", "rating_count"]].mean().sort_values(
+        by = ["PearsonR", "rating_count"], ascending = [False, False]).head(n)
     
-        return top_similar_movie.index.str.title()
+    # merge the dataframe with the movie ratings dataframe to get genres and year of the movies
+    results = top_similar_movie.merge(movie_ratings[["title", "genres", "year"]], left_index = True, 
+                                      right_on = "title").drop_duplicates(subset = "title")
+    results.drop(columns = ["PearsonR", "rating_count"], inplace = True)
+    results.reset_index(drop = True, inplace = True)
     
-    except:
-        error_msg = "No movies found"
-        return error_msg
+    return results
 
 # a function that returns the top n movies to the user based on what other similar users like
 def recommended_movies(userID, n):
@@ -74,27 +67,86 @@ def recommended_movies(userID, n):
     
     recommendation = rating_estimates.sort_values("predicted_rating", ascending = False).head(n)
     
-    return recommendation.index.str.title()
+    # merge the dataframe with the movie ratings dataframe to get genres and year of the movies
+    results = recommendation.merge(movie_ratings[["title", "genres", "year"]], left_index = True, 
+                                   right_on = "title").drop_duplicates(subset = "title")
+    results.drop(columns = ["predicted_rating"], inplace = True)
+    results.reset_index(drop = True, inplace = True)
+    
+    return results
+
+# a function that returns a random movie
+def random_movie():
+    n = random.randint(1, len(movies))
+    return movies[movies.index == n][["title", "genres", "year"]]
+
+
+# read csv files and create dataframe
+movies = pd.read_csv("Data/movies.csv")
+ratings = pd.read_csv("Data/ratings.csv")
+
+# split the year from the title to a different column and clean the columns
+movies[["title", "year", "0", "1", "2"]] = movies["title"].str.split("(", expand = True)
+movies["title"] = movies["title"].str.rstrip()
+movies["year"] = movies["year"].str.strip(")")
+movies.drop(columns = ["0", "1", "2"], inplace = True)
+
+movie_ratings = movies.merge(ratings)
+
+# add a column with rating count
+movie_ratings["rating_count"] = movie_ratings.groupby("title")["title"].transform("count")
+
+# split the year from the title to a different column and clean the columns
+# movie_ratings[["title", "year", "0", "1", "2"]] = movie_ratings["title"].str.split("(", expand = True)
+# movie_ratings["title"] = movie_ratings["title"].str.rstrip()
+# movie_ratings["year"] = movie_ratings["year"].str.strip(")")
+# movie_ratings.drop(columns = ["0", "1", "2"], inplace = True)
+
+# create pivot tables for movie and user based recommendations
+movie_pivot = pd.pivot_table(data = movie_ratings, values = "rating", index = "userId", columns = "title")
+movie_pivot_filled = movie_pivot.fillna(0)
+
+movie_list = movie_ratings["title"].unique()
 
 # Streamlit app elements
 st.title("Movie Recommender")
 
-# Recommendation based on movie ratings
-top_movies_num = st.slider("How many top movie recommendations would you like?", min_value = 1, max_value = 100)
-top_movies_recommendation = top_movies(top_movies_num)
-st.write(top_movies_recommendation)
+st.sidebar.markdown("## Choose a recommender")
+option = st.sidebar.selectbox("", ["Highly rated", "Movie based", "User based", "Surprise me"])
 
-# Recommendation based on movies the users like
-movie_name = st.text_input("Please enter a movie you like")
-similar_movies_num = st.slider("How many similar movie recommendations would you like?", min_value = 1, max_value = 100)
-movie_based_recommendation = similar_movies(movie_name, similar_movies_num)
-st.write(movie_based_recommendation)
+if option == "Highly rated":
+    # Recommendation based on movie ratings
+    top_movies_num = st.sidebar.slider("Number of recommendations", min_value = 1, max_value = 100)
+    top_movies_recommendation = top_movies(top_movies_num)
+    st.write("Here are the top movies based on user ratings")
+    st.table(top_movies_recommendation)
 
-# Recommendation based on what similar users like
-userID = st.number_input("Please enter your user ID", min_value = 1)
-recommended_movies_num = st.slider("How many movie recommendations would you like based on what other users like you have enjoyed", min_value = 1, max_value = 100)
-user_based_recommendation = recommended_movies(userID, recommended_movies_num)
-st.write(user_based_recommendation)
+elif option == "Movie based":
+    # Recommendation based on movies the users like
+    movie_name = st.sidebar.selectbox("Choose a movie", movie_list)
+    similar_movies_num = st.sidebar.slider("Number of recommendations", min_value = 1, max_value = 100)
+    movie_based_recommendation = similar_movies(movie_name, similar_movies_num)
+    st.write("Here are the recommended movies that are similar to the one you have chosen")
+    st.table(movie_based_recommendation)
+
+elif option == "User based":
+    # Recommendation based on what similar users like
+    userID = st.sidebar.selectbox("Choose a user ID", range(1, 611))
+    recommended_movies_num = st.sidebar.slider("Number of recommendations", min_value = 1, max_value = 100)
+    user_based_recommendation = recommended_movies(userID, recommended_movies_num)
+    st.write("Here are the recommended movies based on what similar users to the chosen one have enjoyed")
+    st.table(user_based_recommendation)
+    
+elif option == "Surprise me":
+    # Recommend a random movie
+    clicked = st.sidebar.button("Show me a movie")
+    if clicked:
+        st.table(random_movie())
+    
+
+
+
+
 
 
 
