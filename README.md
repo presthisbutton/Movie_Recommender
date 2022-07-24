@@ -18,6 +18,6 @@ The fourth option suggests a random movie from the database to the user.
 ## Tools
 - Python
 - Pandas
-- Numpy
+- NumPy
 - Scikit-learn
 - Streamlit
